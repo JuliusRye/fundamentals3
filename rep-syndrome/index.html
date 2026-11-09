@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Repetition Code Syndrome</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/blueprint.css">
+</head>
+<body>
+  <main class="sheet">
+    <header class="sheet-head">
+      <a class="back" href="../">&larr; All exercises</a>
+      <h1>Repetition code · Syndrome</h1>
+    </header>
+
+    <p class="task">An error hit the code and the stabilizers below lit up. Tap data qubits to place errors that reproduce this syndrome, then press <b>Check</b>.</p>
+
+    <div class="toolbar">
+      <div>
+        <span class="seg-label">DISTANCE</span>
+        <span class="seg" id="dist">
+          <button type="button" data-d="3" aria-pressed="false">3</button>
+          <button type="button" data-d="5" aria-pressed="true">5</button>
+          <button type="button" data-d="7" aria-pressed="false">7</button>
+        </span>
+      </div>
+      <button type="button" class="btn" id="new">&#8635; New error</button>
+    </div>
+
+    <section class="panel">
+      <h2 class="panel-label">01 · Measured syndrome</h2>
+      <svg class="schematic" id="measured" role="img" aria-label="Measured syndrome"></svg>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-label">02 · Your guess</h2>
+      <p class="hint">Tap a data qubit to toggle an error</p>
+      <svg class="schematic" id="guess" role="img" aria-label="Your error guess"></svg>
+      <div class="meta">Weight <span id="weight">0</span></div>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="btn" id="clear">Clear</button>
+      <button type="button" class="btn primary" id="check">Check</button>
+    </div>
+
+    <section class="panel" id="result" hidden>
+      <h2 class="panel-label">03 · Result</h2>
+      <dl class="verdict">
+        <dt>Syndrome</dt><dd id="v-syn"></dd>
+        <dt>Outcome</dt><dd id="v-out"></dd>
+      </dl>
+      <p class="note" id="v-note"></p>
+
+      <h3 class="subhead">Actual error</h3>
+      <svg class="schematic" id="actual" role="img" aria-label="Actual error"></svg>
+
+      <h3 class="subhead">Error + your correction</h3>
+      <svg class="schematic" id="residual" role="img" aria-label="Error combined with correction"></svg>
+    </section>
+
+    <div class="legend">
+      <span><i class="sw syndrome"></i>Syndrome = 1</span>
+      <span><i class="sw round error"></i>Actual error</span>
+      <span><i class="sw round correction"></i>Your guess</span>
+      <span><i class="sw round residual"></i>Net flip</span>
+    </div>
+
+    <footer class="title-block">
+      <div class="wide"><small>Title</small>Rep. code · syndrome</div>
+      <div><small>Course</small>Fundamentals 3</div>
+      <div><small>Sheet</small>EX-01</div>
+      <div><small>Topic</small>QEC decoding</div>
+      <div><small>Scale</small><span id="tb-d" style="text-transform:none">d = 5</span></div>
+    </footer>
+  </main>
+
+<script>
+(() => {
+  const P_ERR = 0.2;          // per-qubit error probability
+  const NS = "http://www.w3.org/2000/svg";
+  const S = 30, PAD = 24, Y = 36;   // geometry
+
+  let d = 5, err = [], corr = [];
+
+  const $ = id => document.getElementById(id);
+  const syndrome = v => v.slice(1).map((b, i) => v[i] ^ b);
+  const weight = v => v.reduce((a, b) => a + b, 0);
+  const xor = (a, b) => a.map((x, i) => x ^ b[i]);
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  /* Draw one row of the repetition code.
+     data: array of 0/1, or null for "unknown"
+     kind: colour class for flipped qubits
+     syn:  stabilizer outcomes to light up
+     mark: optional array of stabilizers to ring (mismatch)
+     onTap: optional handler(i) to make data qubits tappable
+     dim:  draw a dimension line with the code distance        */
+  function drawRow(svg, { data, kind, syn, mark, onTap, dim }) {
+    const n = data.length;
+    const W = 2 * PAD + 2 * S * (n - 1);
+    const H = dim ? 102 : 76;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.style.maxWidth = (W * 1.5) + "px";
+    svg.replaceChildren();
+
+    const xd = i => PAD + 2 * S * i;
+    const xa = j => PAD + S * (2 * j + 1);
+
+    el("line", { class: "wire", x1: xd(0), y1: Y, x2: xd(n - 1), y2: Y }, svg);
+
+    // stabilizers (ancillas) Z_j Z_{j+1}
+    syn.forEach((b, j) => {
+      el("rect", { class: "anc" + (b ? " lit" : ""), x: xa(j) - 8, y: Y - 8, width: 16, height: 16 }, svg);
+      el("text", { class: "lbl", x: xa(j), y: Y - 16 }, svg).textContent = "S" + (j + 1);
+      if (mark && mark[j]) el("circle", { class: "mismatch", cx: xa(j), cy: Y, r: 15 }, svg);
+    });
+
+    // data qubits
+    data.forEach((b, i) => {
+      const x = xd(i);
+      const cls = "dq" + (b === null ? " unknown" : b ? " flip " + kind : "");
+      el("circle", { class: cls, cx: x, cy: Y, r: 11 }, svg);
+      if (b === null) {
+        el("text", { class: "qmark", x, y: Y + 4 }, svg).textContent = "?";
+      } else if (b) {
+        el("line", { class: "cross " + kind, x1: x - 5, y1: Y - 5, x2: x + 5, y2: Y + 5 }, svg);
+        el("line", { class: "cross " + kind, x1: x - 5, y1: Y + 5, x2: x + 5, y2: Y - 5 }, svg);
+      }
+      el("text", { class: "lbl", x, y: Y + 26 }, svg).textContent = "D" + (i + 1);
+      if (onTap) {
+        const hit = el("rect", { class: "hit", x: x - S, y: 0, width: 2 * S, height: H }, svg);
+        hit.addEventListener("click", () => onTap(i));
+      }
+    });
+
+    if (dim) {
+      const y = Y + 50, x0 = xd(0), x1 = xd(n - 1);
+      el("line", { class: "dim", x1: x0, y1: y, x2: x1, y2: y }, svg);
+      [x0, x1].forEach(x => {
+        el("line", { class: "dim", x1: x, y1: y - 6, x2: x, y2: y + 6 }, svg);
+        el("line", { class: "dim", x1: x, y1: Y + 32, x2: x, y2: y - 6 }, svg);
+      });
+      // arrow heads
+      el("path", { class: "dim", fill: "none", d: `M${x0 + 6},${y - 3} L${x0},${y} L${x0 + 6},${y + 3}` }, svg);
+      el("path", { class: "dim", fill: "none", d: `M${x1 - 6},${y - 3} L${x1},${y} L${x1 - 6},${y + 3}` }, svg);
+      const label = `d = ${n}`;
+      el("rect", { class: "dim-bg", x: (x0 + x1) / 2 - 24, y: y - 7, width: 48, height: 14 }, svg);
+      el("text", { class: "dim-txt", x: (x0 + x1) / 2, y: y + 3.5 }, svg).textContent = label;
+    }
+  }
+
+  function render() {
+    drawRow($("measured"), { data: Array(d).fill(null), syn: syndrome(err), dim: true });
+    drawRow($("guess"), {
+      data: corr, kind: "correction", syn: syndrome(corr),
+      onTap: i => { corr[i] ^= 1; hideResult(); render(); }
+    });
+    $("weight").textContent = weight(corr);
+    $("tb-d").textContent = "d = " + d;
+  }
+
+  function hideResult() { $("result").hidden = true; }
+
+  function newError() {
+    do {
+      err = Array.from({ length: d }, () => (Math.random() < P_ERR ? 1 : 0));
+    } while (!syndrome(err).some(Boolean));   // always show a non-trivial syndrome
+    corr = Array(d).fill(0);
+    hideResult();
+    render();
+  }
+
+  function check() {
+    const sE = syndrome(err), sC = syndrome(corr);
+    const mismatch = sE.map((b, j) => b !== sC[j]);
+    const matched = !mismatch.some(Boolean);
+    const res = xor(err, corr);
+    const wRes = weight(res);
+
+    // minimum-weight correction for this syndrome (two candidates: c and its complement)
+    let c = [0];
+    sE.forEach(b => c.push(c[c.length - 1] ^ b));
+    const wMin = Math.min(weight(c), d - weight(c));
+
+    const vSyn = $("v-syn"), vOut = $("v-out"), note = $("v-note");
+    if (matched) {
+      vSyn.innerHTML = '<span class="ok">✓ Match</span>';
+    } else {
+      const which = mismatch.map((m, j) => m ? "S" + (j + 1) : null).filter(Boolean).join(", ");
+      vSyn.innerHTML = `<span class="fail">✗ Mismatch</span> <span class="note">(${which})</span>`;
+    }
+
+    if (wRes === 0) {
+      vOut.innerHTML = '<span class="ok">✓ Error corrected</span>';
+      note.textContent = `Your guess equals the actual error. Weight ${weight(corr)} (minimum possible: ${wMin}).`;
+    } else if (wRes === d) {
+      vOut.innerHTML = '<span class="fail">✗ Logical error</span>';
+      note.textContent = `Syndrome is right, but error + correction flips every data qubit: a logical operator, invisible to the stabilizers. Weight ${weight(corr)} (minimum possible: ${wMin}).`;
+    } else {
+      vOut.innerHTML = '<span class="fail">✗ Not corrected</span>';
+      note.textContent = "The syndrome is not reproduced, so error + correction still triggers stabilizers (ringed below).";
+    }
+
+    drawRow($("guess"), { data: corr, kind: "correction", syn: sC, mark: mismatch,
+      onTap: i => { corr[i] ^= 1; hideResult(); render(); } });
+    drawRow($("actual"), { data: err, kind: "error", syn: sE });
+    drawRow($("residual"), { data: res, kind: "residual", syn: syndrome(res) });
+
+    $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // wiring
+  $("dist").addEventListener("click", e => {
+    const b = e.target.closest("button[data-d]");
+    if (!b) return;
+    d = +b.dataset.d;
+    $("dist").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    newError();
+  });
+  $("new").addEventListener("click", newError);
+  $("clear").addEventListener("click", () => { corr = Array(d).fill(0); hideResult(); render(); });
+  $("check").addEventListener("click", check);
+
+  newError();
+})();
+</script>
+</body>
+</html>

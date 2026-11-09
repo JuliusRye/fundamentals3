@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Surface Code Syndrome</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/blueprint.css">
+</head>
+<body>
+  <main class="sheet">
+    <header class="sheet-head">
+      <a class="back" href="../">&larr; All exercises</a>
+      <h1>Surface code · Syndrome</h1>
+    </header>
+
+    <p class="task">X, Y or Z errors hit the code and the stabilizers below lit up. Place Pauli errors on data qubits that reproduce this syndrome, then press <b>Check</b>.</p>
+
+    <div class="toolbar">
+      <div>
+        <span class="seg-label">DISTANCE</span>
+        <span class="seg" id="dist">
+          <button type="button" data-d="3" aria-pressed="false">3</button>
+          <button type="button" data-d="5" aria-pressed="true">5</button>
+        </span>
+      </div>
+      <button type="button" class="btn" id="new">&#8635; New error</button>
+    </div>
+
+    <section class="panel">
+      <h2 class="panel-label">01 · Measured syndrome</h2>
+      <svg class="schematic" id="measured" role="img" aria-label="Measured syndrome"></svg>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-label">02 · Your guess</h2>
+      <div class="toolbar">
+        <div>
+          <span class="seg-label">APPLY</span>
+          <span class="seg" id="brush">
+            <button type="button" data-p="X" aria-pressed="true">X</button>
+            <button type="button" data-p="Z" aria-pressed="false">Z</button>
+            <button type="button" data-p="Y" aria-pressed="false">Y</button>
+          </span>
+        </div>
+        <div class="meta">Weight <span id="weight">0</span></div>
+      </div>
+      <p class="hint" style="margin-top:8px">Tap a qubit to apply it. Tap again to undo. X then Z = Y.</p>
+      <svg class="schematic" id="guess" role="img" aria-label="Your error guess"></svg>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="btn" id="clear">Clear</button>
+      <button type="button" class="btn primary" id="check">Check</button>
+    </div>
+
+    <section class="panel" id="result" hidden>
+      <h2 class="panel-label">03 · Result</h2>
+      <dl class="verdict">
+        <dt>Syndrome</dt><dd id="v-syn"></dd>
+        <dt>Outcome</dt><dd id="v-out"></dd>
+      </dl>
+      <p class="note" id="v-note"></p>
+      <p class="note" id="v-min"></p>
+
+      <div class="pair">
+        <div>
+          <h3 class="subhead">Actual error</h3>
+          <svg class="schematic" id="actual" role="img" aria-label="Actual error"></svg>
+        </div>
+        <div>
+          <h3 class="subhead">Error × your correction</h3>
+          <svg class="schematic" id="residual" role="img" aria-label="Error combined with correction"></svg>
+        </div>
+      </div>
+    </section>
+
+    <div class="legend">
+      <span><i class="sw ztype"></i>Z-stabilizer</span>
+      <span><i class="sw xtype"></i>X-stabilizer</span>
+      <span><i class="sw syndrome"></i>Syndrome = 1</span>
+      <span><i class="sw round error"></i>Actual error</span>
+      <span><i class="sw round correction"></i>Your guess</span>
+      <span><i class="sw round residual"></i>Net error</span>
+    </div>
+
+    <footer class="title-block">
+      <div class="wide"><small>Title</small>Surface code · syndrome</div>
+      <div><small>Course</small>Fundamentals 3</div>
+      <div><small>Sheet</small>EX-02</div>
+      <div><small>Topic</small>QEC decoding</div>
+      <div><small>Scale</small><span id="tb-d" style="text-transform:none">d = 5</span></div>
+    </footer>
+  </main>
+
+<script>
+(() => {
+  const P_ERR = 0.08;               // per-qubit error probability (X, Y, Z equally likely)
+  const NS = "http://www.w3.org/2000/svg";
+  const S = 50, PAD = 34;           // lattice spacing / margin (svg units)
+
+  // A Pauli error is a pair of bitmasks over data qubits: {x, z}; Y = both bits set.
+  let d = 5, code, err = { x: 0, z: 0 }, corr = { x: 0, z: 0 }, brush = "X";
+
+  const $ = id => document.getElementById(id);
+  const pop = m => { let n = 0; while (m) { m &= m - 1; n++; } return n; };
+  const mul = (a, b) => ({ x: a.x ^ b.x, z: a.z ^ b.z });          // Pauli product (up to phase)
+  const wt = p => pop(p.x | p.z);
+
+  /* Rotated surface code, data qubits on a d×d grid (q = r*d + c).
+     Faces are checkerboard-coloured: Z-type (detect X errors) where r+c is even,
+     X-type (detect Z errors) where r+c is odd.
+     Weight-2 boundary checks: Z-type on left/right edges, X-type on top/bottom.
+     Logical X: a column (top→bottom). Logical Z: a row (left→right).            */
+  function build(d) {
+    const q = (r, c) => r * d + c;
+    const stabs = [];
+    for (let r = 0; r < d - 1; r++)
+      for (let c = 0; c < d - 1; c++)
+        stabs.push({ type: (r + c) % 2 === 0 ? "Z" : "X", kind: "face", r, c,
+                     qs: [q(r, c), q(r, c + 1), q(r + 1, c), q(r + 1, c + 1)] });
+    for (let i = 0; i < d - 1; i++) {
+      if (i % 2 === 1)               stabs.push({ type: "Z", kind: "left",   r: i, qs: [q(i, 0), q(i + 1, 0)] });
+      if ((i + d - 1) % 2 === 0)     stabs.push({ type: "Z", kind: "right",  r: i, qs: [q(i, d - 1), q(i + 1, d - 1)] });
+      if (i % 2 === 0)               stabs.push({ type: "X", kind: "top",    c: i, qs: [q(0, i), q(0, i + 1)] });
+      if ((d - 1 + i) % 2 === 1)     stabs.push({ type: "X", kind: "bottom", c: i, qs: [q(d - 1, i), q(d - 1, i + 1)] });
+    }
+    stabs.forEach(s => s.mask = s.qs.reduce((a, i) => a | (1 << i), 0));
+    let col = 0, row = 0;
+    for (let k = 0; k < d; k++) { col |= 1 << q(k, 0); row |= 1 << q(0, k); }
+    return { d, stabs, logX: col, logZ: row };
+  }
+
+  // Z-type stabilizers detect the X part, X-type detect the Z part.
+  const syndrome = p => code.stabs.map(s => pop((s.type === "Z" ? p.x : p.z) & s.mask) & 1);
+  // For a net error with trivial syndrome: does it act as logical X / logical Z?
+  const logicalX = p => (pop(p.x & code.logZ) & 1) === 1;   // anticommutes with logical Z
+  const logicalZ = p => (pop(p.z & code.logX) & 1) === 1;   // anticommutes with logical X
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function drawLattice(svg, { data, kind, syn, mark, onTap, dim }) {
+    const X = c => PAD + c * S, Y = r => PAD + r * S;
+    const W = 2 * PAD + (d - 1) * S;
+    const H = 2 * PAD + (d - 1) * S + (dim ? 24 : 0);
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.style.maxWidth = (W * 1.6) + "px";
+    svg.replaceChildren();
+
+    // hatch pattern for X-type stabilizers (id unique per svg)
+    const hid = "hatch-" + svg.id;
+    const pat = el("pattern", { id: hid, width: 5, height: 5, patternUnits: "userSpaceOnUse",
+                                patternTransform: "rotate(45)" }, el("defs", {}, svg));
+    el("line", { class: "hatch-line", x1: 0, y1: 0, x2: 0, y2: 5 }, pat);
+
+    // stabilizers
+    code.stabs.forEach((s, j) => {
+      let path, ax, ay;
+      const r2 = S / 2, off = S * 0.24;
+      if (s.kind === "face") {
+        const x0 = X(s.c), y0 = Y(s.r);
+        path = `M${x0},${y0} h${S} v${S} h${-S} Z`;
+        ax = x0 + r2; ay = y0 + r2;
+      } else if (s.kind === "left" || s.kind === "right") {
+        const left = s.kind === "left", x0 = left ? X(0) : X(d - 1), y0 = Y(s.r);
+        path = `M${x0},${y0} A${r2},${r2} 0 0 ${left ? 0 : 1} ${x0},${y0 + S} Z`;
+        ax = x0 + (left ? -off : off); ay = y0 + r2;
+      } else {
+        const top = s.kind === "top", y0 = top ? Y(0) : Y(d - 1), x0 = X(s.c);
+        path = `M${x0},${y0} A${r2},${r2} 0 0 ${top ? 1 : 0} ${x0 + S},${y0} Z`;
+        ax = x0 + r2; ay = y0 + (top ? -off : off);
+      }
+      const lit = !!syn[j];
+      const pl = el("path", { class: "plaq" + (lit ? " lit" : ""), d: path }, svg);
+      if (s.type === "X" && !lit) pl.style.fill = `url(#${hid})`;
+      el("rect", { class: "anc" + (lit ? " lit" : ""), x: ax - 6, y: ay - 6, width: 12, height: 12 }, svg);
+      el("text", { class: "anc-txt" + (lit ? " lit" : ""), x: ax, y: ay + 3 }, svg).textContent = s.type;
+      if (mark && mark[j]) el("circle", { class: "mismatch", cx: ax, cy: ay, r: 12 }, svg);
+    });
+
+    // data qubits
+    for (let r = 0; r < d; r++) for (let c = 0; c < d; c++) {
+      const i = r * d + c, x = X(c), y = Y(r);
+      let cls = "dq", letter = "";
+      if (data === null) cls += " unknown";
+      else {
+        const bx = (data.x >> i) & 1, bz = (data.z >> i) & 1;
+        letter = bx && bz ? "Y" : bx ? "X" : bz ? "Z" : "";
+        if (letter) cls += " flip " + kind;
+      }
+      el("circle", { class: cls, cx: x, cy: y, r: 11 }, svg);
+      if (letter) el("text", { class: "pauli " + kind, x, y: y + 4.5 }, svg).textContent = letter;
+      if (onTap) {
+        const hit = el("rect", { class: "hit", x: x - S / 2, y: y - S / 2, width: S, height: S }, svg);
+        hit.addEventListener("click", () => onTap(i));
+      }
+    }
+
+    if (dim) {
+      const y = Y(d - 1) + PAD + 6, x0 = X(0), x1 = X(d - 1);
+      el("line", { class: "dim", x1: x0, y1: y, x2: x1, y2: y }, svg);
+      [x0, x1].forEach(x => {
+        el("line", { class: "dim", x1: x, y1: y - 6, x2: x, y2: y + 6 }, svg);
+        el("line", { class: "dim", x1: x, y1: Y(d - 1) + 14, x2: x, y2: y - 6 }, svg);
+      });
+      el("path", { class: "dim", fill: "none", d: `M${x0 + 6},${y - 3} L${x0},${y} L${x0 + 6},${y + 3}` }, svg);
+      el("path", { class: "dim", fill: "none", d: `M${x1 - 6},${y - 3} L${x1},${y} L${x1 - 6},${y + 3}` }, svg);
+      el("rect", { class: "dim-bg", x: (x0 + x1) / 2 - 24, y: y - 7, width: 48, height: 14 }, svg);
+      el("text", { class: "dim-txt", x: (x0 + x1) / 2, y: y + 3.5 }, svg).textContent = `d = ${d}`;
+    }
+  }
+
+  const tap = i => {
+    const b = 1 << i;
+    if (brush !== "Z") corr.x ^= b;
+    if (brush !== "X") corr.z ^= b;
+    hideResult(); render();
+  };
+
+  function render() {
+    drawLattice($("measured"), { data: null, syn: syndrome(err), dim: true });
+    drawLattice($("guess"), { data: corr, kind: "correction", syn: syndrome(corr), onTap: tap });
+    $("weight").textContent = wt(corr);
+    $("tb-d").textContent = "d = " + d;
+  }
+
+  function hideResult() { $("result").hidden = true; }
+
+  function newError() {
+    do {
+      err = { x: 0, z: 0 };
+      for (let i = 0; i < d * d; i++) {
+        if (Math.random() >= P_ERR) continue;
+        const p = Math.floor(Math.random() * 3);          // 0: X, 1: Y, 2: Z
+        if (p <= 1) err.x |= 1 << i;
+        if (p >= 1) err.z |= 1 << i;
+      }
+    } while (!syndrome(err).some(Boolean));               // always show a non-trivial syndrome
+    corr = { x: 0, z: 0 };
+    hideResult();
+    render();
+  }
+
+  /* Lowest-weight correction for one error type, decoded independently (as MWPM does).
+     Every matching correction is e ⊕ (product of same-type stabilizers) [⊕ logical].
+     Returns [weight that succeeds, weight that gives a logical error].            */
+  function minWeights(e, type, logical) {
+    const gens = code.stabs.filter(s => s.type === type).map(s => s.mask);
+    let best = [Infinity, Infinity], m = e;
+    for (let k = 0; k < (1 << gens.length); k++) {
+      if (k) m ^= gens[Math.log2(k & -k)];                // Gray-code step
+      best[0] = Math.min(best[0], pop(m));
+      best[1] = Math.min(best[1], pop(m ^ logical));
+    }
+    return best;
+  }
+
+  function describeMin(label, [ok, bad]) {
+    const w = Math.min(ok, bad);
+    const tail = ok === bad ? "tie: one choice corrects, another fails"
+               : ok < bad ? "corrects" : "logical error!";
+    return `${label} ${w} (${tail})`;
+  }
+
+  function check() {
+    const sE = syndrome(err), sC = syndrome(corr);
+    const mismatch = sE.map((b, j) => b !== sC[j]);
+    const nMis = mismatch.filter(Boolean).length;
+    const res = mul(err, corr);
+
+    $("v-syn").innerHTML = nMis === 0
+      ? '<span class="ok">✓ Match</span>'
+      : `<span class="fail">✗ Mismatch</span> <span class="note">(${nMis} stabilizer${nMis > 1 ? "s" : ""})</span>`;
+
+    const vOut = $("v-out"), note = $("v-note");
+    if (nMis) {
+      vOut.innerHTML = '<span class="fail">✗ Not corrected</span>';
+      note.textContent = "The syndrome is not reproduced, so error × correction still triggers stabilizers (ringed in your guess).";
+    } else {
+      const lx = logicalX(res), lz = logicalZ(res);
+      if (!lx && !lz) {
+        vOut.innerHTML = '<span class="ok">✓ Error corrected</span>';
+        note.textContent = wt(res) === 0
+          ? "Your guess is exactly the actual error."
+          : "Your guess differs from the actual error, but the net error is a product of stabilizers: it acts trivially on the logical state (degeneracy).";
+      } else {
+        const L = lx && lz ? "Y" : lx ? "X" : "Z";
+        vOut.innerHTML = `<span class="fail">✗ Logical ${L} error</span>`;
+        const parts = [];
+        if (lx) parts.push("the net X errors form a chain from top to bottom boundary");
+        if (lz) parts.push("the net Z errors form a chain from left to right boundary");
+        note.textContent = `Syndrome is right, but ${parts.join(" and ")}: a logical operator, invisible to the stabilizers.`;
+      }
+    }
+
+    $("v-min").textContent = `Your weight: ${wt(corr)}. Lowest-weight correction, decoding each type separately: ` +
+      describeMin("X part", minWeights(err.x, "X", code.logX)) + "; " +
+      describeMin("Z part", minWeights(err.z, "Z", code.logZ)) + ".";
+
+    drawLattice($("guess"), { data: corr, kind: "correction", syn: sC, mark: mismatch, onTap: tap });
+    drawLattice($("actual"), { data: err, kind: "error", syn: sE });
+    drawLattice($("residual"), { data: res, kind: "residual", syn: syndrome(res) });
+
+    $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function setDistance(nd) {
+    d = nd;
+    code = build(d);
+    newError();
+  }
+
+  function segSelect(segId, attr, onPick) {
+    $(segId).addEventListener("click", e => {
+      const b = e.target.closest(`button[${attr}]`);
+      if (!b) return;
+      $(segId).querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+      onPick(b.getAttribute(attr));
+    });
+  }
+
+  segSelect("dist", "data-d", v => setDistance(+v));
+  segSelect("brush", "data-p", v => { brush = v; });
+  $("new").addEventListener("click", newError);
+  $("clear").addEventListener("click", () => { corr = { x: 0, z: 0 }; hideResult(); render(); });
+  $("check").addEventListener("click", check);
+
+  setDistance(5);
+})();
+</script>
+</body>
+</html>
