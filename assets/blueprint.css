@@ -399,6 +399,14 @@ svg.schematic {
   letter-spacing: 0.08em;
   text-anchor: middle;
 }
+.row-lbl { text-anchor: start; }
+
+/* classical bits (digit inside a .dq circle) and a noisy-channel band */
+.bit { fill: var(--ink); font-family: var(--font); font-size: 13px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+.bit.dimmed { fill: var(--ink-dim); font-weight: 400; font-size: 11px; }
+.bit.error { fill: var(--c-error); }
+.channel { fill: rgba(255, 158, 74, 0.06); stroke: var(--line-faint); stroke-width: 1; stroke-dasharray: 4 3; }
+
 .qmark { fill: var(--ink-dim); font-family: var(--font); font-size: 11px; text-anchor: middle; pointer-events: none; }
 
 .dim { stroke: var(--line); stroke-width: 0.8; opacity: 0.8; }

@@ -8,6 +8,7 @@ Interactive, phone-friendly exercises on quantum error correction (QEC) decoding
 
 | Exercise | Link |
 | --- | --- |
+| Sending a bit over a noisy channel | <https://juliusrye.github.io/fundamentals3/noisy-bit/> |
 | Repetition code syndrome | <https://juliusrye.github.io/fundamentals3/rep-syndrome/> |
 | Surface code syndrome | <https://juliusrye.github.io/fundamentals3/surface-syndrome/> |
 

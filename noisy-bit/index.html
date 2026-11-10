@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Noisy Bit Channel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/blueprint.css">
+</head>
+<body>
+  <main class="sheet">
+    <header class="sheet-head">
+      <a class="back" href="../">&larr; All exercises</a>
+      <h1>Sending a bit · Noisy channel</h1>
+    </header>
+
+    <p class="task">Alice sends one bit (0 or 1) to Bob, but the channel can flip each bit it carries. Design a protocol so Bob still recovers the right value, then test it.</p>
+
+    <section class="panel">
+      <h2 class="panel-label">01 · Your protocol</h2>
+      <div class="toolbar">
+        <div>
+          <span class="seg-label">BITS SENT</span>
+          <span class="seg" id="len">
+            <button type="button" data-step="-1" aria-label="Fewer bits">&minus;</button>
+            <button type="button" disabled id="len-n" style="cursor:default">1</button>
+            <button type="button" data-step="1" aria-label="More bits">+</button>
+          </span>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:10px">Tap bits to choose what Alice sends for each message</p>
+      <svg class="schematic" id="code" role="img" aria-label="Codewords for 0 and 1"></svg>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-label">02 · Send a message</h2>
+      <div class="toolbar">
+        <div>
+          <span class="seg-label">FLIP PROB.</span>
+          <span class="seg" id="prob">
+            <button type="button" data-p="0.1" aria-pressed="true">10%</button>
+            <button type="button" data-p="0.2" aria-pressed="false">20%</button>
+            <button type="button" data-p="0.3" aria-pressed="false">30%</button>
+          </span>
+        </div>
+        <button type="button" class="btn" id="send">Send &rarr;</button>
+      </div>
+
+      <div id="round" hidden>
+        <svg class="schematic" id="wire" role="img" aria-label="Bits through the channel" style="margin-top:12px"></svg>
+        <div id="ask">
+          <p class="hint" style="margin-top:8px">You are Bob. Which bit did Alice send?</p>
+          <div class="actions" style="margin-top:6px">
+            <button type="button" class="btn" data-guess="0">Bob says 0</button>
+            <button type="button" class="btn" data-guess="1">Bob says 1</button>
+          </div>
+        </div>
+        <div id="reveal" hidden style="margin-top:10px">
+          <dl class="verdict">
+            <dt>Message</dt><dd id="v-msg"></dd>
+            <dt>Bob</dt><dd id="v-bob"></dd>
+          </dl>
+          <p class="note" id="v-note"></p>
+        </div>
+      </div>
+      <p class="meta" style="margin-top:8px">Bob correct <span id="tally">0 / 0</span></p>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-label">03 · Test many messages</h2>
+      <p class="note">Bob decodes each message by picking the codeword that needs the fewest flips to match what he received (a tie means he guesses).</p>
+      <div class="actions" style="margin-top:6px">
+        <button type="button" class="btn primary" id="many">Send 1000 messages</button>
+      </div>
+      <div id="stats" hidden style="margin-top:12px">
+        <dl class="verdict">
+          <dt>Your protocol</dt><dd id="s-you"></dd>
+          <dt>One bare bit</dt><dd id="s-bare"></dd>
+          <dt>Cost</dt><dd id="s-cost"></dd>
+        </dl>
+        <p class="note" id="s-note"></p>
+      </div>
+    </section>
+
+    <div class="legend">
+      <span><i class="sw round error"></i>Flipped by channel</span>
+      <span><i class="sw round correction"></i>Bob correct</span>
+      <span><i class="sw round residual"></i>Bob wrong</span>
+    </div>
+
+    <footer class="title-block">
+      <div class="wide"><small>Title</small>Sending a bit · noisy channel</div>
+      <div><small>Course</small>Fundamentals 3</div>
+      <div><small>Sheet</small>EX-01</div>
+      <div><small>Topic</small>Error correction</div>
+      <div><small>Scale</small><span id="tb-p" style="text-transform:none">p = 10%</span></div>
+    </footer>
+  </main>
+
+<script>
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const MAX_N = 7, TRIALS = 1000;
+  const S = 40, PAD = 18, LX = 74;     // bit spacing, margin, width of row labels
+
+  let n = 1, cw = [[0], [1]], p = 0.1;
+  let round = null;                    // { m, sent, flips, recv }
+  let right = 0, total = 0;
+
+  const $ = id => document.getElementById(id);
+  const ham = (a, b) => a.reduce((s, x, i) => s + (x ^ b[i]), 0);
+  const str = v => v.join("");
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  // Bob's rule: closest codeword; 0/1, or null for a tie.
+  function decode(r) {
+    const d0 = ham(r, cw[0]), d1 = ham(r, cw[1]);
+    return d0 < d1 ? 0 : d1 < d0 ? 1 : null;
+  }
+
+  // Exact probability that Bob decodes correctly (ties count as a coin flip).
+  function exactSuccess() {
+    let P = 0;
+    for (let e = 0; e < (1 << n); e++) {
+      const flips = Array.from({ length: n }, (_, i) => (e >> i) & 1);
+      const k = flips.reduce((a, b) => a + b, 0);
+      const pe = p ** k * (1 - p) ** (n - k);
+      for (const m of [0, 1]) {
+        const g = decode(cw[m].map((b, i) => b ^ flips[i]));
+        P += 0.5 * pe * (g === null ? 0.5 : g === m ? 1 : 0);
+      }
+    }
+    return P;
+  }
+
+  function size() {
+    const W = LX + PAD + S * (n - 1) + PAD;
+    return { W, xb: i => LX + PAD + S * i };
+  }
+
+  function bit(svg, x, y, v, kind) {
+    el("circle", { class: "dq" + (v === null ? " unknown" : kind ? " flip " + kind : ""), cx: x, cy: y, r: 13 }, svg);
+    el("text", { class: "bit" + (kind ? " " + kind : "") + (v === null ? " dimmed" : ""), x, y: y + 4.5 }, svg)
+      .textContent = v === null ? "?" : v;
+  }
+
+  function rowLabel(svg, y, text) {
+    el("text", { class: "lbl row-lbl", x: 4, y: y + 3 }, svg).textContent = text;
+  }
+
+  function drawCode() {
+    const svg = $("code"), { W, xb } = size();
+    const H = 96;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.style.maxWidth = (W * 1.5) + "px";
+    svg.replaceChildren();
+    [0, 1].forEach(m => {
+      const y = 24 + m * 44;
+      rowLabel(svg, y, `MSG ${m} →`);
+      cw[m].forEach((b, i) => {
+        bit(svg, xb(i), y, b);
+        const hit = el("rect", { class: "hit", x: xb(i) - S / 2, y: y - 20, width: S, height: 40 }, svg);
+        hit.addEventListener("click", () => { cw[m][i] ^= 1; codeChanged(); });
+      });
+    });
+    $("len-n").textContent = n;
+  }
+
+  function drawWire(revealed) {
+    const svg = $("wire"), { W, xb } = size();
+    const yA = 18, yC0 = 38, yC1 = 72, yB = 92, H = 112;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.style.maxWidth = (W * 1.5) + "px";
+    svg.replaceChildren();
+
+    rowLabel(svg, yA, "ALICE");
+    rowLabel(svg, (yC0 + yC1) / 2, "CHANNEL");
+    rowLabel(svg, yB, "BOB");
+    el("rect", { class: "channel", x: LX, y: yC0, width: W - LX - 2, height: yC1 - yC0 }, svg);
+
+    round.recv.forEach((r, i) => {
+      const x = xb(i), f = round.flips[i] && revealed;
+      el("line", { class: "wire", x1: x, y1: yA + 13, x2: x, y2: yB - 13 }, svg);
+      if (f) {
+        const c = (yC0 + yC1) / 2;
+        el("line", { class: "cross error", x1: x - 6, y1: c - 6, x2: x + 6, y2: c + 6 }, svg);
+        el("line", { class: "cross error", x1: x - 6, y1: c + 6, x2: x + 6, y2: c - 6 }, svg);
+      }
+      bit(svg, x, yA, revealed ? round.sent[i] : null);
+      bit(svg, x, yB, r, f ? "error" : "");
+    });
+  }
+
+  function codeChanged() {
+    drawCode();
+    $("round").hidden = true;
+    $("stats").hidden = true;
+    right = total = 0;
+    $("tally").textContent = "0 / 0";
+  }
+
+  function send() {
+    const m = Math.random() < 0.5 ? 0 : 1;
+    const sent = cw[m].slice();
+    const flips = sent.map(() => (Math.random() < p ? 1 : 0));
+    round = { m, sent, flips, recv: sent.map((b, i) => b ^ flips[i]), done: false };
+    $("round").hidden = false;
+    $("ask").hidden = false;
+    $("reveal").hidden = true;
+    drawWire(false);
+  }
+
+  function guess(g) {
+    if (!round || round.done) return;
+    round.done = true;
+    const ok = g === round.m;
+    total++; if (ok) right++;
+    $("tally").textContent = `${right} / ${total}`;
+    $("ask").hidden = true;
+    $("reveal").hidden = false;
+    drawWire(true);
+
+    const k = round.flips.reduce((a, b) => a + b, 0);
+    $("v-msg").innerHTML = `${round.m} <span class="note">(sent ${str(round.sent)}, ${k} flip${k === 1 ? "" : "s"})</span>`;
+    $("v-bob").innerHTML = ok ? `<span class="ok">✓ Said ${g}: correct</span>`
+                              : `<span class="fail">✗ Said ${g}: wrong</span>`;
+    let note;
+    if (str(cw[0]) === str(cw[1])) note = "Both messages use the same bits, so Bob can only guess.";
+    else if (k === 0) note = "No flips this time. Send again: what happens when a bit flips?";
+    else if (!ok) note = "The flips turned Alice's bits into something that looked like the other message.";
+    else note = "Bob recovered the message despite the flip" + (k > 1 ? "s." : ".");
+    $("v-note").textContent = note;
+  }
+
+  function many() {
+    let ok = 0;
+    for (let t = 0; t < TRIALS; t++) {
+      const m = Math.random() < 0.5 ? 0 : 1;
+      const g = decode(cw[m].map(b => b ^ (Math.random() < p ? 1 : 0)));
+      if ((g === null ? (Math.random() < 0.5 ? 0 : 1) : g) === m) ok++;
+    }
+    const P = exactSuccess(), bare = 1 - p;
+    const pct = x => (100 * x).toFixed(1) + " %";
+    $("s-you").innerHTML = `<span class="${P > bare + 1e-9 ? "ok" : P < bare - 1e-9 ? "fail" : ""}">${ok} / ${TRIALS} correct</span> <span class="note">(exact ${pct(P)})</span>`;
+    $("s-bare").textContent = pct(bare);
+    $("s-cost").textContent = `${n} bit${n === 1 ? "" : "s"} per message`;
+    $("s-note").textContent =
+      P > bare + 1e-9 ? "Better than sending the bare bit. Can you push it higher? What does it cost?"
+      : P < bare - 1e-9 ? "Worse than just sending the bit once. Look at how similar your two codewords are."
+      : "No better than sending the bit once. Try adding bits and making the two codewords differ more.";
+    $("stats").hidden = false;
+  }
+
+  // wiring
+  $("len").addEventListener("click", e => {
+    const b = e.target.closest("button[data-step]");
+    if (!b) return;
+    const nn = Math.min(MAX_N, Math.max(1, n + +b.dataset.step));
+    if (nn === n) return;
+    if (nn > n) cw.forEach(c => c.push(0)); else cw.forEach(c => c.pop());
+    n = nn;
+    codeChanged();
+  });
+  $("prob").addEventListener("click", e => {
+    const b = e.target.closest("button[data-p]");
+    if (!b) return;
+    p = +b.dataset.p;
+    $("prob").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    $("tb-p").textContent = `p = ${Math.round(p * 100)}%`;
+    $("stats").hidden = true;
+  });
+  $("send").addEventListener("click", send);
+  $("ask").addEventListener("click", e => {
+    const b = e.target.closest("button[data-guess]");
+    if (b) guess(+b.dataset.guess);
+  });
+  $("many").addEventListener("click", many);
+
+  drawCode();
+})();
+</script>
+</body>
+</html>

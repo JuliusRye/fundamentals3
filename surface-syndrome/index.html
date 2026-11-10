@@ -47,7 +47,7 @@
         </div>
         <div class="meta">Weight <span id="weight">0</span></div>
       </div>
-      <p class="hint" style="margin-top:8px">Tap a qubit to apply it. Tap again to undo. X then Z = Y.</p>
+      <p class="hint" style="margin-top:8px">Tap a qubit to apply it. Y is the same as both an X and Z on the same qubit.</p>
       <svg class="schematic" id="guess" role="img" aria-label="Your error guess"></svg>
     </section>
 
@@ -89,7 +89,7 @@
     <footer class="title-block">
       <div class="wide"><small>Title</small>Surface code · syndrome</div>
       <div><small>Course</small>Fundamentals 3</div>
-      <div><small>Sheet</small>EX-02</div>
+      <div><small>Sheet</small>EX-03</div>
       <div><small>Topic</small>QEC decoding</div>
       <div><small>Scale</small><span id="tb-d" style="text-transform:none">d = 5</span></div>
     </footer>
@@ -196,6 +196,7 @@
         if (letter) cls += " flip " + kind;
       }
       el("circle", { class: cls, cx: x, cy: y, r: 11 }, svg);
+      if (data === null) el("text", { class: "qmark", x, y: y + 4 }, svg).textContent = "?";
       if (letter) el("text", { class: "pauli " + kind, x, y: y + 4.5 }, svg).textContent = letter;
       if (onTap) {
         const hit = el("rect", { class: "hit", x: x - S / 2, y: y - S / 2, width: S, height: S }, svg);
