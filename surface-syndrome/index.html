@@ -218,9 +218,14 @@
   }
 
   const tap = i => {
+    // Tap sets the qubit to the selected Pauli (no Pauli multiplication);
+    // tapping again with the same Pauli clears it.
     const b = 1 << i;
-    if (brush !== "Z") corr.x ^= b;
-    if (brush !== "X") corr.z ^= b;
+    const cur = (corr.x & b ? "X" : "") + (corr.z & b ? "Z" : "");
+    const now = cur === "XZ" ? "Y" : cur;
+    const next = now === brush ? "" : brush;
+    corr.x = next === "X" || next === "Y" ? corr.x | b : corr.x & ~b;
+    corr.z = next === "Z" || next === "Y" ? corr.z | b : corr.z & ~b;
     hideResult(); render();
   };
 
