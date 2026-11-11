@@ -78,8 +78,8 @@
     </section>
 
     <div class="legend">
-      <span><i class="sw ztype"></i>Z-stabilizer</span>
-      <span><i class="sw xtype"></i>X-stabilizer</span>
+      <span><i class="sw xtype"></i>X-check (detects X, Y)</span>
+      <span><i class="sw ztype"></i>Z-check (detects Z, Y)</span>
       <span><i class="sw syndrome"></i>Syndrome = 1</span>
       <span><i class="sw round error"></i>Actual error</span>
       <span><i class="sw round correction"></i>Your guess</span>
@@ -97,7 +97,7 @@
 
 <script>
 (() => {
-  const P_ERR = 0.08;               // per-qubit error probability (X, Y, Z equally likely)
+  const MIN_ERR = 1, MAX_ERR = 3;   // number of erroneous qubits (X, Y, Z equally likely)
   const NS = "http://www.w3.org/2000/svg";
   const S = 50, PAD = 34;           // lattice spacing / margin (svg units)
 
@@ -110,22 +110,25 @@
   const wt = p => pop(p.x | p.z);
 
   /* Rotated surface code, data qubits on a d×d grid (q = r*d + c).
-     Faces are checkerboard-coloured: Z-type (detect X errors) where r+c is even,
-     X-type (detect Z errors) where r+c is odd.
-     Weight-2 boundary checks: Z-type on left/right edges, X-type on top/bottom.
+     NOTE: for teaching, a stabilizer's label is the error type it DETECTS
+     (against the usual convention, where the label is the Pauli it measures):
+     "X" checks are Z⊗Z⊗… operators and light up on X/Y errors; "Z" checks are
+     X⊗X⊗… operators and light up on Z/Y errors.
+     Faces are checkerboard-coloured: "X" checks where r+c is even, "Z" where odd.
+     Weight-2 boundary checks: "X" on left/right edges, "Z" on top/bottom.
      Logical X: a column (top→bottom). Logical Z: a row (left→right).            */
   function build(d) {
     const q = (r, c) => r * d + c;
     const stabs = [];
     for (let r = 0; r < d - 1; r++)
       for (let c = 0; c < d - 1; c++)
-        stabs.push({ type: (r + c) % 2 === 0 ? "Z" : "X", kind: "face", r, c,
+        stabs.push({ type: (r + c) % 2 === 0 ? "X" : "Z", kind: "face", r, c,
                      qs: [q(r, c), q(r, c + 1), q(r + 1, c), q(r + 1, c + 1)] });
     for (let i = 0; i < d - 1; i++) {
-      if (i % 2 === 1)               stabs.push({ type: "Z", kind: "left",   r: i, qs: [q(i, 0), q(i + 1, 0)] });
-      if ((i + d - 1) % 2 === 0)     stabs.push({ type: "Z", kind: "right",  r: i, qs: [q(i, d - 1), q(i + 1, d - 1)] });
-      if (i % 2 === 0)               stabs.push({ type: "X", kind: "top",    c: i, qs: [q(0, i), q(0, i + 1)] });
-      if ((d - 1 + i) % 2 === 1)     stabs.push({ type: "X", kind: "bottom", c: i, qs: [q(d - 1, i), q(d - 1, i + 1)] });
+      if (i % 2 === 1)               stabs.push({ type: "X", kind: "left",   r: i, qs: [q(i, 0), q(i + 1, 0)] });
+      if ((i + d - 1) % 2 === 0)     stabs.push({ type: "X", kind: "right",  r: i, qs: [q(i, d - 1), q(i + 1, d - 1)] });
+      if (i % 2 === 0)               stabs.push({ type: "Z", kind: "top",    c: i, qs: [q(0, i), q(0, i + 1)] });
+      if ((d - 1 + i) % 2 === 1)     stabs.push({ type: "Z", kind: "bottom", c: i, qs: [q(d - 1, i), q(d - 1, i + 1)] });
     }
     stabs.forEach(s => s.mask = s.qs.reduce((a, i) => a | (1 << i), 0));
     let col = 0, row = 0;
@@ -133,8 +136,8 @@
     return { d, stabs, logX: col, logZ: row };
   }
 
-  // Z-type stabilizers detect the X part, X-type detect the Z part.
-  const syndrome = p => code.stabs.map(s => pop((s.type === "Z" ? p.x : p.z) & s.mask) & 1);
+  // "X" checks detect the X part (X and Y errors), "Z" checks the Z part (Z and Y errors).
+  const syndrome = p => code.stabs.map(s => pop((s.type === "X" ? p.x : p.z) & s.mask) & 1);
   // For a net error with trivial syndrome: does it act as logical X / logical Z?
   const logicalX = p => (pop(p.x & code.logZ) & 1) === 1;   // anticommutes with logical Z
   const logicalZ = p => (pop(p.z & code.logX) & 1) === 1;   // anticommutes with logical X
@@ -242,8 +245,10 @@
   function newError() {
     do {
       err = { x: 0, z: 0 };
-      for (let i = 0; i < d * d; i++) {
-        if (Math.random() >= P_ERR) continue;
+      const n = MIN_ERR + Math.floor(Math.random() * (MAX_ERR - MIN_ERR + 1));
+      const qs = [...Array(d * d).keys()];
+      for (let k = 0; k < n; k++) {                       // n distinct random qubits
+        const i = qs.splice(Math.floor(Math.random() * qs.length), 1)[0];
         const p = Math.floor(Math.random() * 3);          // 0: X, 1: Y, 2: Z
         if (p <= 1) err.x |= 1 << i;
         if (p >= 1) err.z |= 1 << i;
@@ -255,7 +260,9 @@
   }
 
   /* Lowest-weight correction for one error type, decoded independently (as MWPM does).
-     Every matching correction is e ⊕ (product of same-type stabilizers) [⊕ logical].
+     Every matching correction is e ⊕ (product of stabilizers made of the same Pauli)
+     [⊕ logical]. X-error corrections differ by X⊗X⊗… operators, which are the
+     checks labelled "Z" here (labels name the detected error), and vice versa.
      Returns [weight that succeeds, weight that gives a logical error].            */
   function minWeights(e, type, logical) {
     const gens = code.stabs.filter(s => s.type === type).map(s => s.mask);
@@ -307,8 +314,8 @@
     }
 
     $("v-min").textContent = `Your weight: ${wt(corr)}. Lowest-weight correction, decoding each type separately: ` +
-      describeMin("X part", minWeights(err.x, "X", code.logX)) + "; " +
-      describeMin("Z part", minWeights(err.z, "Z", code.logZ)) + ".";
+      describeMin("X part", minWeights(err.x, "Z", code.logX)) + "; " +
+      describeMin("Z part", minWeights(err.z, "X", code.logZ)) + ".";
 
     drawLattice($("guess"), { data: corr, kind: "correction", syn: sC, mark: mismatch, onTap: tap });
     drawLattice($("actual"), { data: err, kind: "error", syn: sE });
